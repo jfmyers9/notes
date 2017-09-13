@@ -16,3 +16,7 @@
 - BOSH windows respects both `monit` or `config/bpm.yml`
 - Implement a v1 BPM on Windows
 - BOSH windows service wrapper shells out to BPM for it's lifecycle
+
+# Personal Opinions
+- If we need to have a base image to use WINC, I think it may be too heavy weight to use.
+  - Instead we may consider executing windows processes without a container for the time being.
