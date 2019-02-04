@@ -99,3 +99,81 @@ worked around these limitations or implemented inefficient draining logic:
 You can find more user research on issues with the current drain life cycle in
 the following [Google drive
 folder](https://drive.google.com/drive/folders/1N5vB_vFGn8akUbbi8UG1YEnl2Z25R1ej).
+
+## Proposed Workflow
+
+In order to expose more information to the release author, we should provide a
+JSON structured environment variable that exposes more information about the
+deployment process so that release authors can write more efficient and
+effective drain scripts.
+
+**TODO**: Rename the following environment variable.
+
+Release authors should have access to a `BOSH_SOMETHING` that contains data in
+the following format:
+
+```
+{
+  "version": <integer>,
+  "instances_updates": {
+    "vm": {
+      "recreated": true
+    },
+    "packages": [
+      {"name": "golang", "changed": true},
+      {"name": "bpm", "changed": false}
+    ]
+    ...
+  }
+  ...
+}
+```
+
+**Note**: The structure of this data is a suggestion, we should decide how to
+structure this data in the most effective format to encapsulate all of this
+data.
+
+**Note**: The structure of this data includes the version that it was generated
+as. This allows operators to build robust scripts that can react to the changes
+in the structure of this data.
+
+### Backwards Compatibility
+
+One of the complex issues associated with this change is that the current drain
+action implemented by the bosh-agent does not expose enough information in it's
+interface to provide the data detected above.
+
+For this change, we should implement a new drain action with a more expressive
+interface so that we can pass more information to the bosh-agent so that it can
+populate the data correctly.
+
+This new drain action will still need to provide the older arguments and
+`BOSH_JOB_STATE` and `BOSH_JOB_NEXT_STATE` environment variables for some period
+of time to allow BOSH release authors the ability to transition their drain
+scripts to the new interface.
+
+The BOSH director will need to attempt to perform the new drain action. If the
+agent responds with an error due to the action not being implemented, the BOSH
+director will need to perform the old drain action.
+
+Older agents will still provide the previous interface that has been defined in
+the background section of this document.
+
+Release authors will need to write their scripts to branch off of the presence
+of the new environment variable to take advantage of this new information. If
+the new environment variable is not present, the drain scripts will have to rely
+on the previous arguments and environment variables provided by older agents.
+
+## Open Questions
+
+* What should the `BOSH_SOMETHING` environment variable be named?
+* What should the structure of the `BOSH_SOMETHING` environment variable be?
+  What data should be included? We should plan a generic structure so that
+  future information can be added without breaking the interface. Consider using
+  arrays instead of maps for structured data.
+* Are there any missing concerns with the backwards compatibility section above?
+* When and how do we deprecate and remove the old format of the drain script? Do
+  we need to?
+* How do we successfully version the `BOSH_SOMETHING` structure?
+* Should we provide a shared assets for release authors to take advantage of to
+  parse and deal with the structure JSON data?
