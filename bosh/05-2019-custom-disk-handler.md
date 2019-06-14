@@ -132,4 +132,87 @@ only capable of running all co-located jobs in parallel, so there is no
 lifecycle for disk provisioning jobs to be injected in order to handle disks
 correctly before dependent software begins executing.
 
-## Proposed Workflow
+## Proposed Workflows
+
+### Disk Provisioner
+
+In order to allow disks to be provisioned by custom software, we could allow
+users to define a specific provisioner for the disk that they are requesting.
+This can either be done through the `disk_type` definition:
+
+```
+disk_types:
+- name: encrypted-disk
+  provisioner:
+  - name: custom-encryption
+    release: encryption-providers
+  cloud_properties:
+    ...
+```
+
+or the instance group definition:
+
+```
+instance_groups:
+- name: instance
+  instances: 2
+  persistent_disk_type: default
+  persistent_disk_provisioner:
+  - name: custom-encryption
+    release: encryption-providers
+```
+
+The benefits to defining the provisioner on the instance group is that it could
+apply to any `disk_type` definition defined in the cloud config.
+
+The benefits to defining the provisioner on the `disk_type` is that it would
+reduce duplication amongst consumers of the `disk_type` definition.
+
+#### Disk Provisioner Interface
+
+Disk provisioner authors need to be able to deliver their provisioner to the
+BOSH deployed virtual machine. In order to do this, provisioner's would be
+regular BOSH jobs that implement scripts that satisfy a disks lifecycle. Ideally
+this interface would be:
+
+* `bin/mount`: A custom script to partition and mount a disk
+* `bin/unmount`: A custom script to unmount a disk
+* `bin/resize`: A custom script to resize the filesystem and partitions on a
+  given disk
+
+In order to consume information about a given disk, disk provisioners would need
+to consume a link that contains the information about the persistent disk they
+are provisioning. For example:
+
+```
+#!/bin/bash
+
+<% disk_name = link('disk').p('name') %>
+<% device_path = link('disk').p('path') %>
+
+parted <%= device_path %> --label <%= disk_name %> ...
+mount <%= device_path %> ...
+```
+
+#### Agent Interactions
+
+When calling out to `add_persistent_disk`, the director needs to pass along a
+new optional argument to identify the custom provisioner that it wants to use
+for the persistent disk.
+
+Before calling out to the `mount_disk`, `unmount_disk`, or `migrate_disk`
+methods on the agent, the director would need to call `prepare` or `apply` to
+ensure that the packages associated with the custom provisioner are present on
+the deployed virtual machine.
+
+When executing `mount_disk`, `unmount_disk`, or `migrate_disk` the agent will
+defer to the lifecycle hooks defined by the custom provisioner in order to
+handle the persistent disk.
+
+#### Open Questions
+
+* Should the disk be consumed through a link? Or should it be arguments passed
+  to the lifecycle scripts by the agent itself?
+* Should the persistent partitioner be attached to the disk type or the instance
+  group?
+* Can we apply this partitioning logic to the ephemeral disk? Do we want to?
