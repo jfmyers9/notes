@@ -7,6 +7,8 @@ both ephemeral and persistent disks.
 
 ### Persistent Disks
 
+#### Configuration
+
 Currently there are three ways for the persistent disks to be defined.
 
 * `persistent_disk_type`: This property allows a user to request a disk type
@@ -27,12 +29,32 @@ disk_types:
     ...
 ```
 
-Once a persistent disk is requested for an instance, the agent handles the disk
-as follows:
+#### Lifecycle
 
-*
+Once a persistent disk is requested for an instance, the disk is handled in the
+following ways:
+
+* Ability to list persistent disks that are currently mounted
+* Ability to attach a new persistent disk
+  * Disk is attached through the CPI
+  * Disk is added into persistent disk settings maintained by bosh-agent
+* Ability to mount a new persistent disk
+  * Includes mounting and partitioning disk for usage
+* Ability to unmount an old persistent disk
+  * Unmounts the persistent disk from the deployed virtual machine
+* Ability to detach an old persistent disk
+  * Disk is detached through the CPI
+* Ability to migrate the contents from an old disk to a new disk
+  * Assumes new disk is already mounted
+  * Mounts old disk as read-only
+  * Copies contents of old disk to new disk
+  * Unmounts the old disk and remounts the new disk
+* Ability to live resize a disk through the CPI
+  * Disk partitions and filesystem are not currently managed by the agent
 
 ### Ephemeral Disks
+
+#### Configuration
 
 Currently ephemeral disks are defined in the `vm_types` specified in the cloud
 config. For example on VSphere this configuration appears as follows:
@@ -73,6 +95,41 @@ instance_groups:
   - 50GB_ephemeral_disk
 ```
 
+#### Lifecycle
+
+When the bosh-agent performs bootstrapping, the agent handles ephemeral disks in
+one of three ways:
+
+* Raw ephemeral disks
+  * Skips setup if configured to do so
+  * Partitions the disk if not partitioned with the label `raw-ephemeral-n`
+* Normal ephemeral disks
+  * Skips setup if configured to do so
+  * Partitions the ephemeral disk if necessary
+  * Mounts the ephemeral disk in the correct location
+* Ephemeral mount on the root disk
+  * If configured to do so, the agent will partition the ephemeral disk on the
+    root device
+
 ## Problem Statement
 
+In certain situations, BOSH operators wish to be able to customize the manner in
+which disks are mounted and partitioned. For example:
 
+* Operators wish to use custom encryption software in order to encrypt the
+  persistent disk at rest. This involves allowing the software to mount the
+  filesystem before BOSH jobs are able to run and access the disk.
+* Operators wish to mount the persistent storage as a different filesystem type.
+
+Through the current configuration of the BOSH agent, operators are only capable
+of accepting the default provisioning that the agent delivers, or completely
+ignoring provisioning by the agent.
+
+When configuring the agent to ignore the provisioning of the disk, it is up to
+the operator to provide a custom job that partitions and mounts the device
+correctly before the co-located jobs are able to run. At this point, BOSH is
+only capable of running all co-located jobs in parallel, so there is no
+lifecycle for disk provisioning jobs to be injected in order to handle disks
+correctly before dependent software begins executing.
+
+## Proposed Workflow
