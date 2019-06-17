@@ -134,6 +134,9 @@ correctly before dependent software begins executing.
 
 ## Proposed Workflows
 
+* [Disk Provisioners](#disk-provisioner)
+* [Priority Groups](#priority-groups)
+
 ### Disk Provisioner
 
 In order to allow disks to be provisioned by custom software, we could allow
@@ -216,3 +219,62 @@ handle the persistent disk.
 * Should the persistent partitioner be attached to the disk type or the instance
   group?
 * Can we apply this partitioning logic to the ephemeral disk? Do we want to?
+
+### Priority Groups
+
+Priroity groups provide an interface for operators to be able to specify a well
+known priority that would result in their software starting in a certain order.
+The configuration for this option would be as follows:
+
+```
+instance_groups:
+- name: instance
+  instances: 2
+  jobs:
+  - name: disk-encryption
+    release: encryption-r-us
+    priority: <disk|network|none>
+```
+
+For each job specified in the list of jobs, the operator can specify one of either
+`disk`, `network`, or `none` for the optional `priority` property. The default value
+for this property would be `none`.
+
+When `priority` is specified the director would start jobs in the following order:
+
+* Send rendered templates to the deployed VM
+* Start (pre-start, start, post-start) all jobs in the `disk` priority group in parallel
+* Start (pre-start, start, post-start) all jobs in the `network` priority group in parallel
+* Start (pre-start, start, post-start) all jobs in the `none` priority group in parallel
+
+When `priority` is specified the director would stop jobs in the following order:
+
+* Stop (pre-stop, drain, stop, post-stop) all jobs in the `none` priority group in parallel
+* Stop (pre-stop, drain, stop, post-stop) all jobs in the `network` priority group in parallel
+* Stop (pre-stop, drain, stop, post-stop) all jobs in the `disk` priority group in parallel
+
+Specifically for a job that is in the `disk` priority group, it's responsiblities would include:
+
+* Partitioning, mounting, and preparing the disk before post-start completes
+* Unmounting the disk before post-stop completes
+
+#### Agent Interactions
+
+In order to successfully provision disks with custom software, the operator would need to
+leverage the unmanaged disk feature in order to force the agent to defer disk management
+to the co-located jobs.
+
+Therefore during `mount_disk`, `unmount_disk`, and `resize_disk` the agent would no longer
+act on the disk that is being provisioned.
+
+#### Open Questions
+
+* How does the disk job in the priority group know which disk to provision?
+  * All disks? Consume a disk link? How is this configuration specified in the manifest?
+* How does an operator resize a disk in this setup?
+  * `resize_disk` currently mounts both disks and copies the data from one to the other. 
+     How does the co-located job hook into this action? Is resizing disks in this manner no longer supported?
+  * IAAS native resizing would still require increasing the partition and FS size, 
+    potentially possible with unmanaged disks.
+* Which priority groups are reasonable? Should we start with only `disk`?
+* What is the behavior of specifying multiple co-located jobs in the same priority group?
